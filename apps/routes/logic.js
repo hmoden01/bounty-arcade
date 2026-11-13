@@ -30,13 +30,68 @@ export function profile(points) {
   return points.map((p, i) => ({ d: d += i ? haversine(points[i - 1], p) : 0, ele: p.ele }))
 }
 
-export function stats(points) {
-  const eles = points.map(p => p.ele).filter(e => e !== null)
+function rawElevationStats(eles) {
   let gain = 0, loss = 0
   for (let i = 1; i < eles.length; i++) {
     const dz = eles[i] - eles[i - 1]
     if (dz > 0) gain += dz; else loss -= dz
   }
+  return { gain, loss }
+}
+
+function thresholdElevationStats(eles, threshold) {
+  if (eles.length < 2) return { gain: 0, loss: 0 }
+
+  let gain = 0, loss = 0
+  let ref = eles[0]
+  let extreme = ref
+  let direction = 0
+
+  for (let i = 1; i < eles.length; i++) {
+    const ele = eles[i]
+
+    if (direction === 0) {
+      if (ele - ref >= threshold) {
+        direction = 1
+        extreme = ele
+      } else if (ref - ele >= threshold) {
+        direction = -1
+        extreme = ele
+      }
+    } else if (direction === 1) {
+      if (ele > extreme) {
+        extreme = ele
+      } else if (extreme - ele >= threshold) {
+        gain += extreme - ref
+        ref = extreme
+        extreme = ele
+        direction = -1
+      }
+    } else {
+      if (ele < extreme) {
+        extreme = ele
+      } else if (ele - extreme >= threshold) {
+        loss += ref - extreme
+        ref = extreme
+        extreme = ele
+        direction = 1
+      }
+    }
+  }
+
+  if (direction === 1) gain += extreme - ref
+  else if (direction === -1) loss += ref - extreme
+
+  return { gain, loss }
+}
+
+export function stats(points, { threshold = 0 } = {}) {
+  const eles = points.map(p => p.ele).filter(e => e !== null)
+  const t = Number(threshold)
+  const { gain, loss } = Number.isFinite(t) && t > 0
+    ? thresholdElevationStats(eles, t)
+    : rawElevationStats(eles)
+
   const lats = points.map(p => p.lat), lons = points.map(p => p.lon)
   return {
     count: points.length,
